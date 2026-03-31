@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useRef, useEffect } from 'react';
+import { useState, useEffect } from 'react';
 import { Label } from '@/components/ui/label';
 import { Input } from '@/components/ui/input';
 import { Button } from '@/components/ui/button';
@@ -11,6 +11,7 @@ import type { TTSProviderId } from '@/lib/audio/types';
 import { Volume2, Loader2, CheckCircle2, XCircle, Eye, EyeOff } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { createLogger } from '@/lib/logger';
+import { useTTSPreview } from '@/lib/audio/use-tts-preview';
 
 const log = createLogger('TTSSettings');
 
@@ -28,7 +29,7 @@ export function TTSSettings({ selectedProviderId }: TTSSettingsProps) {
   const activeProviderId = useSettingsStore((state) => state.ttsProviderId);
 
   // When testing a non-active provider, use that provider's default voice
-  // instead of the active provider's voice (which may be incompatible)
+  // instead of the active provider's voice (which may be incompatible).
   const effectiveVoice =
     selectedProviderId === activeProviderId
       ? ttsVoice
@@ -38,93 +39,44 @@ export function TTSSettings({ selectedProviderId }: TTSSettingsProps) {
   const isServerConfigured = !!ttsProvidersConfig[selectedProviderId]?.isServerConfigured;
 
   const [showApiKey, setShowApiKey] = useState(false);
-  const [testingTTS, setTestingTTS] = useState(false);
   const [testText, setTestText] = useState(t('settings.ttsTestTextDefault'));
   const [testStatus, setTestStatus] = useState<'idle' | 'testing' | 'success' | 'error'>('idle');
   const [testMessage, setTestMessage] = useState('');
-  const audioRef = useRef<HTMLAudioElement>(null);
+  const { previewing: testingTTS, startPreview, stopPreview } = useTTSPreview();
 
-  // Update test text when language changes
+  const rawApiKey = ttsProvidersConfig[selectedProviderId]?.apiKey || '';
+
+  // Keep the sample text in sync with locale changes.
   useEffect(() => {
     setTestText(t('settings.ttsTestTextDefault'));
   }, [t]);
 
-  // Reset state when provider changes
+  // Reset transient UI state when switching providers.
   useEffect(() => {
+    stopPreview();
     setShowApiKey(false);
     setTestStatus('idle');
     setTestMessage('');
-  }, [selectedProviderId]);
+  }, [selectedProviderId, stopPreview]);
 
   const handleTestTTS = async () => {
     if (!testText.trim()) return;
-    setTestingTTS(true);
+
     setTestStatus('testing');
     setTestMessage('');
 
     try {
-      if (selectedProviderId === 'browser-native-tts') {
-        if (!('speechSynthesis' in window)) {
-          setTestStatus('error');
-          setTestMessage(t('settings.browserTTSNotSupported'));
-          return;
-        }
-
-        const utterance = new SpeechSynthesisUtterance(testText);
-        utterance.rate = ttsSpeed;
-        const voices = window.speechSynthesis.getVoices();
-        const selectedVoice = voices.find(
-          (v) => v.name === effectiveVoice || v.lang === effectiveVoice,
-        );
-        if (selectedVoice) utterance.voice = selectedVoice;
-
-        await new Promise<void>((resolve, reject) => {
-          utterance.onend = () => resolve();
-          utterance.onerror = (event) => reject(new Error(event.error));
-          window.speechSynthesis.speak(utterance);
-        });
-
-        setTestStatus('success');
-        setTestMessage(t('settings.ttsTestSuccess'));
-        return;
-      }
-
-      const requestBody: Record<string, unknown> = {
+      await startPreview({
         text: testText,
-        audioId: 'tts-test',
-        ttsProviderId: selectedProviderId,
-        ttsVoice: effectiveVoice,
-        ttsSpeed: ttsSpeed,
-      };
-      const apiKeyValue = ttsProvidersConfig[selectedProviderId]?.apiKey;
-      if (apiKeyValue?.trim()) requestBody.ttsApiKey = apiKeyValue;
-      const baseUrlValue = ttsProvidersConfig[selectedProviderId]?.baseUrl;
-      if (baseUrlValue?.trim()) requestBody.ttsBaseUrl = baseUrlValue;
-
-      const response = await fetch('/api/generate/tts', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(requestBody),
+        providerId: selectedProviderId,
+        modelId: ttsProvidersConfig[selectedProviderId]?.modelId || ttsProvider.defaultModelId,
+        voice: effectiveVoice,
+        speed: ttsSpeed,
+        apiKey: ttsProvidersConfig[selectedProviderId]?.apiKey,
+        baseUrl: ttsProvidersConfig[selectedProviderId]?.baseUrl,
       });
-      const data = await response
-        .json()
-        .catch(() => ({ success: false, error: response.statusText }));
-      if (response.ok && data.success) {
-        const binaryStr = atob(data.base64);
-        const bytes = new Uint8Array(binaryStr.length);
-        for (let i = 0; i < binaryStr.length; i++) bytes[i] = binaryStr.charCodeAt(i);
-        const audioBlob = new Blob([bytes], { type: `audio/${data.format}` });
-        const audioUrl = URL.createObjectURL(audioBlob);
-        if (audioRef.current) {
-          audioRef.current.src = audioUrl;
-          await audioRef.current.play();
-        }
-        setTestStatus('success');
-        setTestMessage(t('settings.ttsTestSuccess'));
-      } else {
-        setTestStatus('error');
-        setTestMessage(data.error || t('settings.ttsTestFailed'));
-      }
+      setTestStatus('success');
+      setTestMessage(t('settings.ttsTestSuccess'));
     } catch (error) {
       log.error('TTS test failed:', error);
       setTestStatus('error');
@@ -133,8 +85,6 @@ export function TTSSettings({ selectedProviderId }: TTSSettingsProps) {
           ? `${t('settings.ttsTestFailed')}: ${error.message}`
           : t('settings.ttsTestFailed'),
       );
-    } finally {
-      setTestingTTS(false);
     }
   };
 
@@ -150,14 +100,21 @@ export function TTSSettings({ selectedProviderId }: TTSSettingsProps) {
       {/* API Key & Base URL */}
       {(ttsProvider.requiresApiKey || isServerConfigured) && (
         <>
-          <div className="grid grid-cols-2 gap-4">
+          <div className={cn('grid gap-4', 'grid-cols-2')}>
             <div className="space-y-2">
               <Label className="text-sm">{t('settings.ttsApiKey')}</Label>
               <div className="relative">
                 <Input
+                  name={`tts-api-key-${selectedProviderId}`}
                   type={showApiKey ? 'text' : 'password'}
+                  autoComplete="new-password"
+                  autoCapitalize="none"
+                  autoCorrect="off"
+                  spellCheck={false}
                   placeholder={
-                    isServerConfigured ? t('settings.optionalOverride') : t('settings.enterApiKey')
+                    isServerConfigured
+                      ? t('settings.optionalOverride')
+                      : t('settings.enterApiKey')
                   }
                   value={ttsProvidersConfig[selectedProviderId]?.apiKey || ''}
                   onChange={(e) =>
@@ -179,6 +136,11 @@ export function TTSSettings({ selectedProviderId }: TTSSettingsProps) {
             <div className="space-y-2">
               <Label className="text-sm">{t('settings.ttsBaseUrl')}</Label>
               <Input
+                name={`tts-base-url-${selectedProviderId}`}
+                autoComplete="off"
+                autoCapitalize="none"
+                autoCorrect="off"
+                spellCheck={false}
                 placeholder={ttsProvider.defaultBaseUrl || t('settings.enterCustomBaseUrl')}
                 value={ttsProvidersConfig[selectedProviderId]?.baseUrl || ''}
                 onChange={(e) =>
@@ -268,7 +230,26 @@ export function TTSSettings({ selectedProviderId }: TTSSettingsProps) {
         </div>
       )}
 
-      <audio ref={audioRef} className="hidden" />
+      {/* Available Models */}
+      {ttsProvider.models.length > 0 && (
+        <div className="space-y-2">
+          <Label className="text-sm text-muted-foreground">{t('settings.availableModels')}</Label>
+          <div className="flex flex-wrap gap-2">
+            {ttsProvider.models.map((model) => (
+              <div
+                key={model.id}
+                className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md bg-muted/50 border border-border/40 text-xs font-mono text-muted-foreground"
+              >
+                <span className="size-1.5 rounded-full bg-emerald-500/70" />
+                {model.name}
+              </div>
+            ))}
+          </div>
+          <p className="text-[11px] text-muted-foreground/60">
+            {t('settings.modelSelectedViaVoice')}
+          </p>
+        </div>
+      )}
     </div>
   );
 }

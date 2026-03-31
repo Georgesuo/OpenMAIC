@@ -9,6 +9,9 @@
  * - Azure TTS: https://learn.microsoft.com/en-us/azure/ai-services/speech-service/text-to-speech
  * - GLM TTS: https://docs.bigmodel.cn/cn/guide/models/sound-and-video/glm-tts
  * - Qwen TTS: https://bailian.console.aliyun.com/
+ * - MiniMax TTS: https://platform.minimaxi.com/docs/api-reference/speech-t2a-http
+ * - Doubao TTS: https://www.volcengine.com/docs/6561/1257543
+ * - ElevenLabs TTS: https://elevenlabs.io/docs/api-reference/text-to-speech/convert
  * - Browser Native: Web Speech API (client-side only)
  *
  * HOW TO ADD A NEW PROVIDER:
@@ -23,7 +26,7 @@
  *      name: 'ElevenLabs',
  *      requiresApiKey: true,
  *      defaultBaseUrl: 'https://api.elevenlabs.io/v1',
- *      icon: '/elevenlabs.svg',
+ *      icon: '/logos/elevenlabs.svg',
  *      voices: [...],
  *      supportedFormats: ['mp3', 'pcm'],
  *      speedRange: { min: 0.5, max: 2.0, default: 1.0 }
@@ -51,10 +54,10 @@
  *        },
  *        body: JSON.stringify({
  *          text,
- *          model_id: 'eleven_monolingual_v1',
+ *          model_id: 'eleven_multilingual_v2',
  *          voice_settings: {
  *            stability: 0.5,
- *            similarity_boost: 0.5,
+ *            similarity_boost: 0.75,
  *          }
  *        }),
  *      });
@@ -91,6 +94,7 @@
 
 import type { TTSModelConfig } from './types';
 import { TTS_PROVIDERS } from './constants';
+import { edgeTTS } from './edge-tts-native';
 
 /**
  * Result of TTS generation
@@ -98,6 +102,23 @@ import { TTS_PROVIDERS } from './constants';
 export interface TTSGenerationResult {
   audio: Uint8Array;
   format: string;
+}
+
+/**
+ * Thrown when a TTS provider returns a rate-limit / concurrency-quota error.
+ * Allows downstream consumers to distinguish rate-limit errors from other TTS failures.
+ *
+ * TODO: The API route currently catches all errors uniformly as GENERATION_FAILED.
+ * This class enables future retry/backoff logic without changing the throw sites.
+ */
+export class TTSRateLimitError extends Error {
+  constructor(
+    public readonly provider: string,
+    message: string,
+  ) {
+    super(message);
+    this.name = 'TTSRateLimitError';
+  }
 }
 
 /**
@@ -160,7 +181,7 @@ async function generateOpenAITTS(
       'Content-Type': 'application/json; charset=utf-8',
     },
     body: JSON.stringify({
-      model: 'gpt-4o-mini-tts',
+      model: config.modelId || 'gpt-4o-mini-tts',
       input: text,
       voice: config.voice,
       speed: config.speed || 1.0,
@@ -232,7 +253,7 @@ async function generateGLMTTS(config: TTSModelConfig, text: string): Promise<TTS
       'Content-Type': 'application/json; charset=utf-8',
     },
     body: JSON.stringify({
-      model: 'glm-tts',
+      model: config.modelId || 'glm-tts',
       input: text,
       voice: config.voice,
       speed: config.speed || 1.0,
@@ -279,7 +300,7 @@ async function generateQwenTTS(config: TTSModelConfig, text: string): Promise<TT
       'Content-Type': 'application/json; charset=utf-8',
     },
     body: JSON.stringify({
-      model: 'qwen3-tts-flash',
+      model: config.modelId || 'qwen3-tts-flash',
       input: {
         text,
         voice: config.voice,
@@ -320,32 +341,19 @@ async function generateQwenTTS(config: TTSModelConfig, text: string): Promise<TT
 }
 
 /**
- * Edge TTS implementation (Microsoft Edge's free TTS service)
- * Uses native implementation to avoid ESM module compatibility issues
+ * Edge TTS implementation (uses Python edge-tts package)
  */
-async function generateEdgeTTS(
-  config: TTSModelConfig,
-  text: string,
-): Promise<TTSGenerationResult> {
-  // 动态导入本地实现，避免 ESM 模块兼容性问题
-  // Dynamic import of native implementation to avoid ESM compatibility issues
-  const { edgeTTS } = await import('./edge-tts-native');
+async function generateEdgeTTS(config: TTSModelConfig, text: string): Promise<TTSGenerationResult> {
+  const rate = config.speed || 1.0;
+  const rateStr = rate === 1.0 ? '+0%' : rate > 1.0 ? `+${Math.round((rate - 1) * 100)}%` : `${Math.round((rate - 1) * 100)}%`;
 
-  // 计算语速：edge-tts 使用百分比格式
-  // speed 1.0 = +0%, speed 2.0 = +100%, speed 0.5 = -50%
-  const rate = config.speed ? `${((config.speed - 1) * 100).toFixed(0)}%` : '+0%';
-
-  // 使用本地实现生成音频
   const audioBuffer = await edgeTTS(text, {
-    voice: config.voice,
-    rate,
+    voice: config.voice || 'zh-CN-XiaoxiaoNeural',
+    rate: rateStr,
   });
 
-  // 将 Buffer 转换为 Uint8Array
-  const audio = new Uint8Array(audioBuffer);
-
   return {
-    audio,
+    audio: new Uint8Array(audioBuffer),
     format: 'mp3',
   };
 }
@@ -367,6 +375,7 @@ export async function getCurrentTTSConfig(): Promise<TTSModelConfig> {
 
   return {
     providerId: ttsProviderId,
+    modelId: providerConfig?.modelId || TTS_PROVIDERS[ttsProviderId]?.defaultModelId || '',
     apiKey: providerConfig?.apiKey,
     baseUrl: providerConfig?.baseUrl,
     voice: ttsVoice,

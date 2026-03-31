@@ -19,6 +19,8 @@
  * - requiresApiKey: Whether the provider needs an API key
  * - defaultBaseUrl: Default API endpoint (optional)
  * - icon: Path to provider icon (optional)
+ * - models: Available model choices (empty array if no model concept)
+ * - defaultModelId: Default model ID (empty string if no models)
  * - voices: Array of available voices (TTS only)
  * - supportedFormats: Audio formats supported by the provider
  * - speedRange: Min/max/default speed settings (TTS only)
@@ -39,6 +41,15 @@ import type {
  * Central registry for all TTS providers.
  * Keep in sync with TTSProviderId type definition.
  */
+export const MINIMAX_TTS_MODELS = [
+  { id: 'speech-2.8-hd', name: 'Speech 2.8 HD' },
+  { id: 'speech-2.8-turbo', name: 'Speech 2.8 Turbo' },
+  { id: 'speech-2.6-hd', name: 'Speech 2.6 HD' },
+  { id: 'speech-2.6-turbo', name: 'Speech 2.6 Turbo' },
+  { id: 'speech-02-hd', name: 'Speech 02 HD' },
+  { id: 'speech-02-turbo', name: 'Speech 02 Turbo' },
+] as const;
+
 export const TTS_PROVIDERS: Record<TTSProviderId, TTSProviderConfig> = {
   'openai-tts': {
     id: 'openai-tts',
@@ -46,6 +57,12 @@ export const TTS_PROVIDERS: Record<TTSProviderId, TTSProviderConfig> = {
     requiresApiKey: true,
     defaultBaseUrl: 'https://api.openai.com/v1',
     icon: '/logos/openai.svg',
+    models: [
+      { id: 'gpt-4o-mini-tts', name: 'GPT-4o Mini TTS' },
+      { id: 'tts-1', name: 'TTS-1' },
+      { id: 'tts-1-hd', name: 'TTS-1 HD' },
+    ],
+    defaultModelId: 'gpt-4o-mini-tts',
     voices: [
       // Recommended voices (best quality)
       {
@@ -54,6 +71,7 @@ export const TTS_PROVIDERS: Record<TTSProviderId, TTSProviderConfig> = {
         language: 'en',
         gender: 'neutral',
         description: 'voiceMarin',
+        compatibleModels: ['gpt-4o-mini-tts'],
       },
       {
         id: 'cedar',
@@ -61,6 +79,7 @@ export const TTS_PROVIDERS: Record<TTSProviderId, TTSProviderConfig> = {
         language: 'en',
         gender: 'neutral',
         description: 'voiceCedar',
+        compatibleModels: ['gpt-4o-mini-tts'],
       },
       // Standard voices (alphabetical)
       {
@@ -151,6 +170,8 @@ export const TTS_PROVIDERS: Record<TTSProviderId, TTSProviderConfig> = {
     requiresApiKey: true,
     defaultBaseUrl: 'https://{region}.tts.speech.microsoft.com',
     icon: '/logos/azure.svg',
+    models: [],
+    defaultModelId: '',
     voices: [
       {
         id: 'zh-CN-XiaoxiaoNeural',
@@ -194,6 +215,8 @@ export const TTS_PROVIDERS: Record<TTSProviderId, TTSProviderConfig> = {
     requiresApiKey: true,
     defaultBaseUrl: 'https://open.bigmodel.cn/api/paas/v4',
     icon: '/logos/glm.svg',
+    models: [{ id: 'glm-tts', name: 'GLM TTS' }],
+    defaultModelId: 'glm-tts',
     voices: [
       {
         id: 'tongtong',
@@ -255,6 +278,12 @@ export const TTS_PROVIDERS: Record<TTSProviderId, TTSProviderConfig> = {
     requiresApiKey: true,
     defaultBaseUrl: 'https://dashscope.aliyuncs.com/api/v1',
     icon: '/logos/bailian.svg',
+    models: [
+      { id: 'qwen3-tts-flash', name: 'Qwen3 TTS Flash' },
+      { id: 'qwen3-tts-instruct-flash', name: 'Qwen3 TTS Instruct Flash' },
+      { id: 'qwen-tts', name: 'Qwen TTS' },
+    ],
+    defaultModelId: 'qwen3-tts-flash',
     voices: [
       // Standard Mandarin voices
       {
@@ -795,6 +824,8 @@ export const TTS_PROVIDERS: Record<TTSProviderId, TTSProviderConfig> = {
         description: 'edgeVoiceInJoon',
       },
     ],
+    models: [],
+    defaultModelId: '',
     supportedFormats: ['mp3', 'wav'],
     speedRange: { min: 0.5, max: 2.0, default: 1.0 },
   },
@@ -804,6 +835,8 @@ export const TTS_PROVIDERS: Record<TTSProviderId, TTSProviderConfig> = {
     name: '浏览器原生 (Web Speech API)',
     requiresApiKey: false,
     icon: '/logos/browser.svg',
+    models: [],
+    defaultModelId: '',
     voices: [
       // Note: Actual voices are determined by the browser and OS
       // These are placeholder - real voices are fetched dynamically via speechSynthesis.getVoices()
@@ -827,6 +860,12 @@ export const ASR_PROVIDERS: Record<ASRProviderId, ASRProviderConfig> = {
     requiresApiKey: true,
     defaultBaseUrl: 'https://api.openai.com/v1',
     icon: '/logos/openai.svg',
+    models: [
+      { id: 'gpt-4o-mini-transcribe', name: 'GPT-4o Mini Transcribe' },
+      { id: 'gpt-4o-transcribe', name: 'GPT-4o Transcribe' },
+      { id: 'whisper-1', name: 'Whisper-1' },
+    ],
+    defaultModelId: 'gpt-4o-mini-transcribe',
     supportedLanguages: [
       // OpenAI Whisper supports 58 languages (as of official docs)
       // Source: https://platform.openai.com/docs/guides/speech-to-text
@@ -900,6 +939,8 @@ export const ASR_PROVIDERS: Record<ASRProviderId, ASRProviderConfig> = {
     requiresApiKey: true,
     defaultBaseUrl: 'https://dashscope.aliyuncs.com/api/v1',
     icon: '/logos/bailian.svg',
+    models: [{ id: 'qwen3-asr-flash', name: 'Qwen3 ASR Flash' }],
+    defaultModelId: 'qwen3-asr-flash',
     supportedLanguages: [
       // Qwen ASR supports 27 languages + auto-detect
       // If language is uncertain or mixed (e.g. Chinese-English-Japanese-Korean), use "auto" (do not specify language parameter)
@@ -942,6 +983,8 @@ export const ASR_PROVIDERS: Record<ASRProviderId, ASRProviderConfig> = {
     name: '浏览器原生 ASR (Web Speech API)',
     requiresApiKey: false,
     icon: '/logos/browser.svg',
+    models: [],
+    defaultModelId: '',
     supportedLanguages: [
       // Chinese variants
       'zh-CN', // Mandarin (Simplified, China)
@@ -1028,6 +1071,15 @@ export const DEFAULT_TTS_VOICES: Record<TTSProviderId, string> = {
   'qwen-tts': 'Cherry',
   'edge-tts': 'zh-CN-XiaoxiaoNeural',
   'browser-native-tts': 'default',
+};
+
+export const DEFAULT_TTS_MODELS: Record<TTSProviderId, string> = {
+  'openai-tts': 'gpt-4o-mini-tts',
+  'azure-tts': '',
+  'glm-tts': 'glm-tts',
+  'qwen-tts': 'qwen3-tts-flash',
+  'edge-tts': '',
+  'browser-native-tts': '',
 };
 
 /**
