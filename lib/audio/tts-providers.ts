@@ -130,6 +130,9 @@ export async function generateTTS(
     case 'qwen-tts':
       return await generateQwenTTS(config, text);
 
+    case 'edge-tts':
+      return await generateEdgeTTS(config, text);
+
     case 'browser-native-tts':
       throw new Error(
         'Browser Native TTS must be handled client-side using Web Speech API. This provider cannot be used on the server.',
@@ -313,6 +316,37 @@ async function generateQwenTTS(config: TTSModelConfig, text: string): Promise<TT
   return {
     audio: new Uint8Array(arrayBuffer),
     format: 'wav', // Qwen3 TTS returns WAV format
+  };
+}
+
+/**
+ * Edge TTS implementation (Microsoft Edge's free TTS service)
+ * Uses native implementation to avoid ESM module compatibility issues
+ */
+async function generateEdgeTTS(
+  config: TTSModelConfig,
+  text: string,
+): Promise<TTSGenerationResult> {
+  // 动态导入本地实现，避免 ESM 模块兼容性问题
+  // Dynamic import of native implementation to avoid ESM compatibility issues
+  const { edgeTTS } = await import('./edge-tts-native');
+
+  // 计算语速：edge-tts 使用百分比格式
+  // speed 1.0 = +0%, speed 2.0 = +100%, speed 0.5 = -50%
+  const rate = config.speed ? `${((config.speed - 1) * 100).toFixed(0)}%` : '+0%';
+
+  // 使用本地实现生成音频
+  const audioBuffer = await edgeTTS(text, {
+    voice: config.voice,
+    rate,
+  });
+
+  // 将 Buffer 转换为 Uint8Array
+  const audio = new Uint8Array(audioBuffer);
+
+  return {
+    audio,
+    format: 'mp3',
   };
 }
 
